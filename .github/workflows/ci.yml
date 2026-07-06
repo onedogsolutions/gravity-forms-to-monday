@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+  pull_request:
+
+jobs:
+  php:
+    name: PHP lint & mapper tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: [ '7.4', '8.2', '8.4' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+
+      - name: Lint PHP files
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 \
+            | xargs -0 -n1 -P4 php -l
+
+      - name: Run column mapper tests
+        run: php tests/test-column-mapper.php

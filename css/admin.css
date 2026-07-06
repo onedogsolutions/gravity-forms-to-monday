@@ -1,0 +1,15 @@
+/* Gravity Forms to Monday — admin styles. */
+
+.gf-monday-connection-status {
+	display: inline-block;
+	margin-top: 6px;
+	font-weight: 600;
+}
+
+.gf-monday-connection-status--ok {
+	color: #0c9d1c;
+}
+
+.gf-monday-connection-status--error {
+	color: #cc1818;
+}
