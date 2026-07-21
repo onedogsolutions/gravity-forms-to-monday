@@ -4,7 +4,7 @@ Tags: gravity forms, monday, monday.com, crm, integration
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -46,8 +46,11 @@ Yes. Use the `gform_monday_api_token` filter to return a constant.
 
 == Changelog ==
 
+= 1.1.1 =
+* Fix: custom values now work. The "Custom Values & Additional Columns" section uses the generic_map field type, which supports the "Add Custom Value" option (the previous field_map / dynamic_field_map approach did not). Map any column to a form field, static text, or a merge tag, and target Monday Column IDs the discovery query did not return.
+
 = 1.1.0 =
-* Field mapping: choose "Add Custom Value" on any column to send static text or merge tags instead of a form field, for Monday columns with no matching form field.
+* Field mapping: attempted custom-value support (superseded by 1.1.1).
 * Additional Columns: support custom Monday Column IDs to target columns the discovery query did not return.
 
 = 1.0.0 =

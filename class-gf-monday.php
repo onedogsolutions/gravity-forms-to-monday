@@ -111,6 +111,13 @@ class GF_Monday extends GFFeedAddOn {
 	private $api = null;
 
 	/**
+	 * Whether the generic_map raw row shape has been logged this request.
+	 *
+	 * @var bool
+	 */
+	private $logged_custom_row_shape = false;
+
+	/**
 	 * Get the singleton instance.
 	 *
 	 * @return GF_Monday
@@ -431,28 +438,36 @@ class GF_Monday extends GFFeedAddOn {
 				);
 			} else {
 				$sections[] = array(
-					'title'  => esc_html__( 'Field Mapping', 'gravity-forms-to-monday' ),
-					'description' => esc_html__( 'Map Monday columns to Gravity Forms fields. Choose "Add Custom Value" on any column to send static text or merge tags instead of a form field. Leave a column blank to skip it.', 'gravity-forms-to-monday' ),
-					'fields' => array(
+					'title'       => esc_html__( 'Field Mapping', 'gravity-forms-to-monday' ),
+					'description' => esc_html__( 'Map Monday columns to Gravity Forms fields. To send static text or a merge tag to a column (for data that is not on the form), use the Custom Values & Additional Columns section below. Leave a column blank to skip it.', 'gravity-forms-to-monday' ),
+					'fields'      => array(
 						array(
-							'name'                => 'monday_columns',
-							'label'               => esc_html__( 'Columns', 'gravity-forms-to-monday' ),
-							'type'                => 'field_map',
-							'field_map'           => $field_map,
-							'enable_custom_value' => true,
+							'name'      => 'monday_columns',
+							'label'     => esc_html__( 'Columns', 'gravity-forms-to-monday' ),
+							'type'      => 'field_map',
+							'field_map' => $field_map,
 						),
+					),
+				);
+
+				$sections[] = array(
+					'title'       => esc_html__( 'Custom Values & Additional Columns', 'gravity-forms-to-monday' ),
+					'description' => esc_html__( 'Set any Monday column to a form field, static text, or a merge tag. Pick a column, then choose a form field or "Add Custom Value". Use "Add Custom Value" on the column to enter a Monday Column ID that is not listed.', 'gravity-forms-to-monday' ),
+					'fields'      => array(
 						array(
-							'name'                => 'monday_dynamic_columns',
-							'label'               => esc_html__( 'Additional Columns', 'gravity-forms-to-monday' ),
-							'type'                => 'dynamic_field_map',
-							'enable_custom_value' => true,
-							'key_field'           => array(
-								'title'         => esc_html__( 'Monday Column ID', 'gravity-forms-to-monday' ),
-								'choices'       => $this->get_all_column_choices( $board_id ),
-								'allow_custom'  => true,
-								'custom_value_label' => esc_html__( 'Add Custom Column ID', 'gravity-forms-to-monday' ),
+							'name'        => 'monday_dynamic_columns',
+							'label'       => esc_html__( 'Custom Mappings', 'gravity-forms-to-monday' ),
+							'type'        => 'generic_map',
+							'key_field'   => array(
+								'title'   => esc_html__( 'Monday Column', 'gravity-forms-to-monday' ),
+								'choices' => $this->get_all_column_choices( $board_id ),
 							),
-							'tooltip'             => '<h6>' . esc_html__( 'Additional Columns', 'gravity-forms-to-monday' ) . '</h6>' . esc_html__( 'Map any remaining columns not listed above. Choose "Add Custom Value" to send static text or merge tags, or "Add Custom Column ID" to target a Monday column not listed.', 'gravity-forms-to-monday' ),
+							'value_field' => array(
+								'title'             => esc_html__( 'Value', 'gravity-forms-to-monday' ),
+								'custom_value_type' => 'text',
+								'merge_tags'        => true,
+							),
+							'tooltip'     => '<h6>' . esc_html__( 'Custom Values & Additional Columns', 'gravity-forms-to-monday' ) . '</h6>' . esc_html__( 'Map any column to a form field or a custom value. Choose "Add Custom Value" in the value column for static text or merge tags.', 'gravity-forms-to-monday' ),
 						),
 					),
 				);
@@ -752,23 +767,34 @@ class GF_Monday extends GFFeedAddOn {
 
 		$values = array();
 
-		// Mapped columns (field_map named "monday_columns", each key "col_<id>").
+		// Mapped columns (field_map named "monday_columns", each row keyed "col_<id>").
+		// field_map maps to form fields only; custom values live in the generic_map below.
 		$mapped = $this->get_field_map_fields( $feed, 'monday_columns' );
-		foreach ( $mapped as $name => $selected ) {
-			if ( 0 !== strpos( $name, 'col_' ) || rgblank( $selected ) ) {
+		foreach ( $mapped as $name => $field_id ) {
+			if ( 0 !== strpos( $name, 'col_' ) || rgblank( $field_id ) ) {
 				continue;
 			}
 
 			$column_id = substr( $name, 4 );
-			$value     = $this->resolve_mapped_value( $form, $entry, $feed, $selected, 'monday_columns', $name );
-			$this->add_column_value( $values, $types, $column_id, $value, $feed, $entry, $form );
+			$this->add_column_value( $values, $types, $column_id, $this->get_field_value( $form, $entry, $field_id ), $feed, $entry, $form );
 		}
 
-		// Dynamic columns. Read raw rows so custom keys and custom values are resolvable.
-		$dynamic_rows = $this->get_setting( 'monday_dynamic_columns', array(), $feed['meta'] );
-		if ( is_array( $dynamic_rows ) ) {
-			foreach ( $dynamic_rows as $row ) {
-				$key      = rgar( $row, 'key' );
+		// Custom mappings (generic_map). Read raw rows so custom keys (column IDs)
+		// and custom values (static text / merge tags) are both resolvable.
+		$custom_rows = $this->get_setting( 'monday_dynamic_columns', array(), $feed['meta'] );
+		if ( is_array( $custom_rows ) ) {
+			foreach ( $custom_rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				// Log the raw row shape once so any framework storage difference is visible on staging.
+				if ( ! $this->logged_custom_row_shape ) {
+					$this->log_debug( __METHOD__ . '(): generic_map row keys: ' . implode( ', ', array_keys( $row ) ) );
+					$this->logged_custom_row_shape = true;
+				}
+
+				$key       = rgar( $row, 'key' );
 				$column_id = ( 'gf_custom' === $key ) ? rgar( $row, 'custom_key' ) : $key;
 
 				$selected = rgar( $row, 'value' );
@@ -785,64 +811,6 @@ class GF_Monday extends GFFeedAddOn {
 		}
 
 		return $values;
-	}
-
-	/**
-	 * Resolve a field_map row value, which may be a form field or a custom value.
-	 *
-	 * When the row stores the "gf_custom" sentinel, the companion custom text is
-	 * pulled from the feed meta and run through merge-tag replacement so static
-	 * text and merge tags can both populate a discovered column that has no
-	 * matching form field.
-	 *
-	 * @param array  $form       Form object.
-	 * @param array  $entry      Entry object.
-	 * @param array  $feed       Feed object.
-	 * @param string $selected   Stored select value (field id or "gf_custom").
-	 * @param string $field_name Field map field name (e.g. "monday_columns").
-	 * @param string $row_name   Row name (e.g. "col_<id>").
-	 * @return mixed
-	 */
-	protected function resolve_mapped_value( $form, $entry, $feed, $selected, $field_name, $row_name ) {
-		if ( 'gf_custom' !== $selected ) {
-			return $this->get_field_value( $form, $entry, $selected );
-		}
-
-		$custom = $this->get_custom_companion_value( $feed, $field_name, $row_name );
-
-		return $this->replace_merge_tags( $custom, $form, $entry );
-	}
-
-	/**
-	 * Locate the custom text stored alongside a "gf_custom" field_map row.
-	 *
-	 * The framework's exact companion meta key has varied across Gravity Forms
-	 * versions, so several known conventions are checked and the first non-empty
-	 * match wins. A miss is logged to make any new convention easy to spot.
-	 *
-	 * @param array  $feed       Feed object.
-	 * @param string $field_name Field map field name.
-	 * @param string $row_name   Row name.
-	 * @return string
-	 */
-	protected function get_custom_companion_value( $feed, $field_name, $row_name ) {
-		$meta       = rgar( $feed, 'meta', array() );
-		$candidates = array(
-			$field_name . '_' . $row_name . '_custom_value',
-			$row_name . '_custom_value',
-			$field_name . '_' . $row_name . '_custom',
-			$row_name . '_custom',
-		);
-
-		foreach ( $candidates as $key ) {
-			if ( isset( $meta[ $key ] ) && ! rgblank( $meta[ $key ] ) ) {
-				return (string) $meta[ $key ];
-			}
-		}
-
-		$this->log_debug( __METHOD__ . '(): No custom value companion found for row "' . $row_name . '". Checked: ' . implode( ', ', $candidates ) );
-
-		return '';
 	}
 
 	/**

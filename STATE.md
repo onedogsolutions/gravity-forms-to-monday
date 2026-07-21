@@ -1,7 +1,7 @@
 # Project State
 
 **Plugin:** Gravity Forms to Monday
-**Current version:** 1.1.0
+**Current version:** 1.1.1
 **Status:** Feature-complete for v1 scope; in staging testing.
 
 ## What works
@@ -11,8 +11,7 @@
 - **Discovery** — boards, groups, and columns pulled from the Monday GraphQL API v2, cached in 5-minute transients; cache flushed when the token changes.
 - **Feed UI** — per-form feeds; pick a board (re-renders on change) and group; set an item name with merge tags; map discovered columns to form fields.
 - **Field mapping** — one row per supported Monday column, with the form-field dropdown filtered to compatible field types; plus an "Additional Columns" section for anything else.
-- **Custom values (1.1.0)** — any mapped column can use **Add Custom Value** to send static text or merge tags instead of a form field, for columns with no matching form field.
-- **Custom column IDs (1.1.0)** — the Additional Columns section accepts a custom Monday Column ID to target a column the discovery query did not return.
+- **Custom values & additional columns (1.1.1)** — a `generic_map` section lets you set any Monday column to a form field, static text, or a merge tag, and target a custom Monday Column ID the discovery query did not return. (The `field_map` type used for the auto-listed columns cannot do custom values — that is a framework limitation — so custom values are handled in this separate section.)
 - **Processing** — `process_feed` builds `column_values`, creates the item, stores `monday_item_id` / `monday_item_url` as entry meta, and adds a linking entry note; failures logged via the GF logging UI and recorded on the entry.
 - **Entry detail** — sidebar box links the created Monday item.
 
@@ -36,15 +35,16 @@ The Gravity Forms framework integration (settings rendering, feed UI, `create_it
 3. **Custom column ID** — add an Additional Columns row with a custom Monday Column ID; confirm it populates.
 4. **API shape** — confirm `create_item` arguments and `API-Version` (`2024-10`, `includes/class-gf-monday-api.php`) are accepted by the workspace.
 
-### Known unknown — custom-value companion meta key
+### Known unknown — generic_map row storage shape
 
-The framework's storage key for a `gf_custom` field-map row's custom text has varied across Gravity Forms versions. `GF_Monday::get_custom_companion_value()` (`class-gf-monday.php`) checks several known conventions and logs a debug line listing the keys it checked if none match. If a **custom value on a discovered column** comes through empty on staging:
+Custom values and custom keys are read by parsing the raw `monday_dynamic_columns` setting rows in `build_column_values()` (`class-gf-monday.php`), expecting each row to carry `key` / `custom_key` / `value` / `custom_value` (the standard map row shape). The first time a row is processed, its array keys are written to the GF add-on log (`generic_map row keys: ...`) so any framework difference is immediately visible.
 
-1. Enable GF logging for "Gravity Forms Monday Add-On" and look for the "No custom value companion found" debug line.
-2. Inspect the saved feed meta to find the actual key (`SELECT meta FROM wp_gf_addon_feed WHERE form_id = <id>;`).
-3. Add that key to the `$candidates` list in `get_custom_companion_value()`.
+If a custom value or custom column ID comes through empty on staging:
+1. Enable GF logging for "Gravity Forms Monday Add-On" and read the `generic_map row keys:` debug line to see the actual row shape.
+2. Cross-check against the saved feed meta (`SELECT meta FROM wp_gf_addon_feed WHERE form_id = <id>;`).
+3. Adjust the `rgar( $row, ... )` keys in the custom-mappings loop to match.
 
-Custom values in the **Additional Columns** (dynamic map) section read the raw `custom_value` row field directly and do not depend on this lookup.
+Note: `field_map` (the auto-listed "Columns" section) supports form-field mapping only — custom values are intentionally handled in the separate `generic_map` "Custom Values & Additional Columns" section, since `field_map` has no custom-value option in the framework.
 
 ## Branch / release workflow
 
