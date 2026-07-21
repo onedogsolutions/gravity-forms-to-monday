@@ -1,7 +1,7 @@
 # Project State
 
 **Plugin:** Gravity Forms to Monday
-**Current version:** 1.1.2
+**Current version:** 1.1.3
 **Status:** Feature-complete for v1 scope; in staging testing.
 
 ## What works
@@ -21,7 +21,13 @@
 
 **Files/photos:** `file` columns are populated by uploading GF file-upload field files *after* the item is created (`add_file_to_column`, multipart `/v2/file` endpoint) — they are never placed in `column_values`. Map a file-upload field to a file column in the Custom Values & Additional Columns section.
 
+**Location:** `location` columns are mapped in the dedicated "Location Columns" section — Latitude + Longitude (required) and an optional address, assembled into `{lat,lng,address}`. The section only appears when the board has a location column. The Geolocation add-on supplies lat/lng as sub-inputs of the GF Address field (`Address (Latitude)` / `Address (Longitude)`).
+
 Still unsupported (v2 candidates): `people`, `board_relation`, mirror/formula. Handle via the `gform_monday_column_value` filter meanwhile.
+
+## Performance
+
+Feed processing runs in the **background** (`$_async_feed_processing = true`), so `create_item` and photo uploads do not block form submission. If a host's WP background processing (loopback/cron) is unreliable and feeds stop running, disable it site-wide with `add_filter( 'gform_is_feed_asynchronous', '__return_false' )`.
 
 ## Resilience & diagnostics (1.1.2)
 
@@ -39,10 +45,11 @@ The Gravity Forms framework integration (settings rendering, feed UI, `create_it
 ## Verify on staging
 
 1. **Round trip** — submit an entry; confirm the item is created and lands in the correct group (the log records the item ID and group).
-2. **Phone** — confirm the phone column populates (the 1.1.2 fix; this was the column that caused the "invalid value" failure).
-3. **Photos** — map a file-upload field to a Monday file column; confirm files attach to the created item.
-4. **Custom values / custom column ID** — set a column to Add Custom Value (static text and a merge tag) and add a custom Monday Column ID; confirm both land.
-5. **Resilience** — if any column still errors, confirm the item is still created without it and the entry gets an explanatory note; read the logged payload + `extensions` to fix that column's format.
+2. **Location** — in the Location Columns section map Latitude/Longitude (and optional address) to the Address field's sub-inputs; confirm the Monday location column populates with a pin. If no Location Columns section appears, the Monday "Address" column is not a `location` type — report its actual type.
+3. **Submission speed** — with async on, the confirmation page should return immediately; the Monday item + photos appear a few seconds later once the background process runs.
+4. **Photos** — map a file-upload field to a Monday file column; confirm files attach to the created item.
+5. **Custom values / custom column ID** — set a column to Add Custom Value (static text and a merge tag) and add a custom Monday Column ID; confirm both land.
+6. **Deactivated labels** — a status/dropdown value that is *deactivated* on the Monday board (e.g. "Google") is rejected; resilience drops just that column and notes it. Reactivate the label in Monday or align the form choices with active labels. ("Create missing labels" only helps for labels that don't exist, not deactivated ones.)
 
 ### Known unknown — generic_map row storage shape
 

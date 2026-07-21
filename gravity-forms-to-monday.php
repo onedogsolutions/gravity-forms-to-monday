@@ -3,7 +3,7 @@
  * Plugin Name:       Gravity Forms to Monday
  * Plugin URI:        https://github.com/onedogsolutions/gravity-forms-to-monday
  * Description:       Automatically push new Gravity Forms entries to Monday.com as items, with per-form field mapping.
- * Version:           1.1.2
+ * Version:           1.1.3
  * Author:            One Dog Solutions
  * Author URI:        https://onedog.solutions
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || die();
 
-define( 'GF_MONDAY_VERSION', '1.1.2' );
+define( 'GF_MONDAY_VERSION', '1.1.3' );
 define( 'GF_MONDAY_MIN_GF_VERSION', '2.7' );
 define( 'GF_MONDAY_PLUGIN_FILE', __FILE__ );
 define( 'GF_MONDAY_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );

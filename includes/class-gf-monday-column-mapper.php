@@ -169,6 +169,39 @@ class GF_Monday_Column_Mapper {
 	}
 
 	/**
+	 * Build a Monday location column value from coordinates and an address.
+	 *
+	 * Monday's location column requires numeric latitude and longitude; the
+	 * address text is optional. Without valid coordinates the value is skipped
+	 * (an address-only payload is rejected by the API).
+	 *
+	 * @param mixed $lat     Latitude.
+	 * @param mixed $lng     Longitude.
+	 * @param mixed $address Address text (optional).
+	 * @return array|null
+	 */
+	public static function format_location( $lat, $lng, $address = '' ) {
+		$lat = trim( (string) $lat );
+		$lng = trim( (string) $lng );
+
+		if ( '' === $lat || '' === $lng || ! is_numeric( $lat ) || ! is_numeric( $lng ) ) {
+			return null;
+		}
+
+		$out = array(
+			'lat' => $lat,
+			'lng' => $lng,
+		);
+
+		$address = trim( (string) $address );
+		if ( '' !== $address ) {
+			$out['address'] = $address;
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Whether a value counts as empty for mapping purposes.
 	 *
 	 * @param mixed $value Value.

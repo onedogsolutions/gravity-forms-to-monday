@@ -69,6 +69,15 @@ class GF_Monday extends GFFeedAddOn {
 	protected $_multiple_feeds = true;
 
 	/**
+	 * Process feeds in the background so slow API calls (item creation and file
+	 * uploads) do not block form submission. Can be toggled per site/feed with
+	 * the gform_is_feed_asynchronous filter.
+	 *
+	 * @var bool
+	 */
+	protected $_async_feed_processing = true;
+
+	/**
 	 * Capabilities.
 	 *
 	 * @var string|array
@@ -472,6 +481,23 @@ class GF_Monday extends GFFeedAddOn {
 					),
 				);
 
+				// Location columns need latitude, longitude, and address mapped separately.
+				$location_map = $this->get_location_field_map( $board_id );
+				if ( ! empty( $location_map ) ) {
+					$sections[] = array(
+						'title'       => esc_html__( 'Location Columns', 'gravity-forms-to-monday' ),
+						'description' => esc_html__( 'Monday location columns need latitude and longitude. Map the Latitude and Longitude fields (the Geolocation add-on adds these to your Address field) plus an optional address. The column is skipped unless both coordinates are provided.', 'gravity-forms-to-monday' ),
+						'fields'      => array(
+							array(
+								'name'      => 'monday_location',
+								'label'     => esc_html__( 'Location', 'gravity-forms-to-monday' ),
+								'type'      => 'field_map',
+								'field_map' => $location_map,
+							),
+						),
+					);
+				}
+
 				$sections[] = array(
 					'title'  => esc_html__( 'Options', 'gravity-forms-to-monday' ),
 					'fields' => array(
@@ -614,6 +640,45 @@ class GF_Monday extends GFFeedAddOn {
 			}
 
 			$field_map[] = $entry;
+		}
+
+		return $field_map;
+	}
+
+	/**
+	 * Build a field_map with three rows (address, latitude, longitude) per
+	 * Monday location column on the board.
+	 *
+	 * @param string $board_id Board ID.
+	 * @return array Empty when the board has no location columns.
+	 */
+	protected function get_location_field_map( $board_id ) {
+		$board = $this->get_api()->get_board( $board_id );
+		if ( is_wp_error( $board ) ) {
+			return array();
+		}
+
+		$field_map = array();
+
+		foreach ( (array) rgar( $board, 'columns' ) as $column ) {
+			if ( 'location' !== $column['type'] ) {
+				continue;
+			}
+
+			$id = $column['id'];
+
+			$field_map[] = array(
+				'name'  => 'loc_' . $id . '_lat',
+				'label' => $column['title'] . ' — ' . esc_html__( 'Latitude', 'gravity-forms-to-monday' ),
+			);
+			$field_map[] = array(
+				'name'  => 'loc_' . $id . '_lng',
+				'label' => $column['title'] . ' — ' . esc_html__( 'Longitude', 'gravity-forms-to-monday' ),
+			);
+			$field_map[] = array(
+				'name'  => 'loc_' . $id . '_address',
+				'label' => $column['title'] . ' — ' . esc_html__( 'Address (optional)', 'gravity-forms-to-monday' ),
+			);
 		}
 
 		return $field_map;
@@ -1004,7 +1069,57 @@ class GF_Monday extends GFFeedAddOn {
 			}
 		}
 
+		// Location columns: assemble lat/lng/address from their dedicated mappings.
+		$this->add_location_values( $values, $types, $feed, $entry, $form );
+
 		return $values;
+	}
+
+	/**
+	 * Assemble Monday location column values from their lat/lng/address mappings.
+	 *
+	 * @param array $values Accumulator (by reference).
+	 * @param array $types  Column ID => type map.
+	 * @param array $feed   Feed object.
+	 * @param array $entry  Entry object.
+	 * @param array $form   Form object.
+	 * @return void
+	 */
+	protected function add_location_values( &$values, $types, $feed, $entry, $form ) {
+		$location_ids = array_keys( array_filter( $types, static function ( $type ) {
+			return 'location' === $type;
+		} ) );
+
+		if ( empty( $location_ids ) ) {
+			return;
+		}
+
+		$map = $this->get_field_map_fields( $feed, 'monday_location' );
+
+		foreach ( $location_ids as $column_id ) {
+			$lat_field     = rgar( $map, 'loc_' . $column_id . '_lat' );
+			$lng_field     = rgar( $map, 'loc_' . $column_id . '_lng' );
+			$address_field = rgar( $map, 'loc_' . $column_id . '_address' );
+
+			if ( rgblank( $lat_field ) || rgblank( $lng_field ) ) {
+				continue;
+			}
+
+			$lat     = $this->get_field_value( $form, $entry, $lat_field );
+			$lng     = $this->get_field_value( $form, $entry, $lng_field );
+			$address = rgblank( $address_field ) ? '' : $this->get_field_value( $form, $entry, $address_field );
+
+			$location = GF_Monday_Column_Mapper::format_location( $lat, $lng, $address );
+
+			/** This filter is documented in the add_column_value() method. */
+			$location = apply_filters( 'gform_monday_column_value', $location, 'location', array( $lat, $lng, $address ), (string) $column_id, $feed, $entry, $form );
+
+			if ( null !== $location ) {
+				$values[ (string) $column_id ] = $location;
+			} else {
+				$this->log_debug( __METHOD__ . '(): Skipped location column "' . $column_id . '" (missing or non-numeric coordinates).' );
+			}
+		}
 	}
 
 	/**

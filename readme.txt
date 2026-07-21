@@ -4,7 +4,7 @@ Tags: gravity forms, monday, monday.com, crm, integration
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.1.2
+Stable tag: 1.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,6 +45,10 @@ Text, long text, numbers, email, phone, date, status, dropdown, checkbox, link, 
 Yes. Use the `gform_monday_api_token` filter to return a constant.
 
 == Changelog ==
+
+= 1.1.3 =
+* Location columns: new "Location Columns" mapping section. Map Latitude, Longitude, and an optional address (the Geolocation add-on adds lat/lng to your Address field) to populate a Monday location column.
+* Performance: feed processing now runs in the background (async), so item creation and photo uploads no longer slow down form submission. Toggle with the gform_is_feed_asynchronous filter.
 
 = 1.1.2 =
 * Fix: phone columns now send digits-only values with a valid country code (default US, filterable via gform_monday_default_country), resolving Monday "invalid value" errors that blocked item creation.

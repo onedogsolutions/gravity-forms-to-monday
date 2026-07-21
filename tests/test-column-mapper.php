@@ -79,6 +79,10 @@ gf_monday_assert( 'empty array -> null', $m::format( 'dropdown', array( '', ' ' 
 gf_monday_assert( 'is_supported people == false', $m::is_supported( 'people' ), false );
 gf_monday_assert( 'is_supported status == true', $m::is_supported( 'status' ), true );
 gf_monday_assert( 'email field types', $m::compatible_gf_field_types( 'email' ), array( 'email' ) );
+gf_monday_assert( 'location full', $m::format_location( '44.9778', '-93.2650', 'Minneapolis, MN' ), array( 'lat' => '44.9778', 'lng' => '-93.2650', 'address' => 'Minneapolis, MN' ) );
+gf_monday_assert( 'location no address', $m::format_location( '44.9778', '-93.2650' ), array( 'lat' => '44.9778', 'lng' => '-93.2650' ) );
+gf_monday_assert( 'location missing lng -> null', $m::format_location( '44.9778', '' ), null );
+gf_monday_assert( 'location non-numeric -> null', $m::format_location( 'abc', '-93.2650' ), null );
 
 echo "\n";
 if ( $failures > 0 ) {
