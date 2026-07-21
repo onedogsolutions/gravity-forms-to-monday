@@ -4,7 +4,7 @@ Tags: gravity forms, monday, monday.com, crm, integration
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,6 +45,10 @@ Text, long text, numbers, email, phone, date, status, dropdown, checkbox, link, 
 Yes. Use the `gform_monday_api_token` filter to return a constant.
 
 == Changelog ==
+
+= 1.1.0 =
+* Field mapping: choose "Add Custom Value" on any column to send static text or merge tags instead of a form field, for Monday columns with no matching form field.
+* Additional Columns: support custom Monday Column IDs to target columns the discovery query did not return.
 
 = 1.0.0 =
 * Initial release: master API settings, per-form feeds, live board/column discovery, field mapping, and entry-to-item creation.
