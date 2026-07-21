@@ -4,7 +4,7 @@ Tags: gravity forms, monday, monday.com, crm, integration
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -45,6 +45,12 @@ Text, long text, numbers, email, phone, date, status, dropdown, checkbox, link, 
 Yes. Use the `gform_monday_api_token` filter to return a constant.
 
 == Changelog ==
+
+= 1.1.2 =
+* Fix: phone columns now send digits-only values with a valid country code (default US, filterable via gform_monday_default_country), resolving Monday "invalid value" errors that blocked item creation.
+* Photos/files: mapped file-upload fields are now uploaded to Monday file columns after the item is created.
+* Resilience: if Monday rejects one column value, the item is retried without that column so the lead still lands, and the dropped column is noted on the entry.
+* Diagnostics: the full column_values payload and Monday's error details (including the offending column) are now written to the add-on log; the created item's ID and group are logged.
 
 = 1.1.1 =
 * Fix: custom values now work. The "Custom Values & Additional Columns" section uses the generic_map field type, which supports the "Add Custom Value" option (the previous field_map / dynamic_field_map approach did not). Map any column to a form field, static text, or a merge tag, and target Monday Column IDs the discovery query did not return.

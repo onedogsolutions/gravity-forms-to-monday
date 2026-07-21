@@ -69,6 +69,11 @@ gf_monday_assert( 'link', $m::format( 'link', 'https://x.co' ), array( 'url' => 
 gf_monday_assert( 'country code', $m::format( 'country', 'us' ), array( 'countryCode' => 'US', 'countryName' => 'US' ) );
 gf_monday_assert( 'rating rounds', $m::format( 'rating', '4.2' ), '4' );
 gf_monday_assert( 'hour', $m::format( 'hour', '14:30' ), array( 'hour' => 14, 'minute' => 30 ) );
+gf_monday_assert( 'phone strips formatting, US default', $m::format( 'phone', '+1 319 290 6881' ), array( 'phone' => '13192906881', 'countryShortName' => 'US' ) );
+gf_monday_assert( 'phone empty -> null', $m::format( 'phone', '   ' ), null );
+$m::set_default_country( 'ca' );
+gf_monday_assert( 'phone honors default country', $m::format( 'phone', '416-555-0199' ), array( 'phone' => '4165550199', 'countryShortName' => 'CA' ) );
+$m::set_default_country( 'US' );
 gf_monday_assert( 'empty string -> null', $m::format( 'text', '   ' ), null );
 gf_monday_assert( 'empty array -> null', $m::format( 'dropdown', array( '', ' ' ) ), null );
 gf_monday_assert( 'is_supported people == false', $m::is_supported( 'people' ), false );

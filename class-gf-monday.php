@@ -677,6 +677,16 @@ class GF_Monday extends GFFeedAddOn {
 		$item_name = wp_strip_all_tags( $item_name );
 
 		/**
+		 * Filter the default two-letter country code used for phone columns.
+		 *
+		 * @param string $country Default country code.
+		 * @param array  $feed    Feed object.
+		 * @param array  $entry   Entry object.
+		 * @param array  $form    Form object.
+		 */
+		GF_Monday_Column_Mapper::set_default_country( apply_filters( 'gform_monday_default_country', 'US', $feed, $entry, $form ) );
+
+		/**
 		 * Filter the computed Monday item name.
 		 *
 		 * @param string $item_name Item name.
@@ -700,9 +710,14 @@ class GF_Monday extends GFFeedAddOn {
 
 		$create_labels = (bool) rgars( $feed, 'meta/monday_create_labels' );
 
-		$this->log_debug( __METHOD__ . '(): Creating Monday item on board ' . $board_id . ' with ' . count( $column_values ) . ' column value(s).' );
+		// Log the full payload so a rejected column can be identified without guesswork.
+		$this->log_debug(
+			__METHOD__ . '(): Creating Monday item on board ' . $board_id .
+			( $group_id ? ' (group ' . $group_id . ')' : ' (default group)' ) .
+			' with column_values: ' . wp_json_encode( $column_values )
+		);
 
-		$item = $this->get_api()->create_item( $board_id, $item_name, $column_values, $group_id, $create_labels );
+		$item = $this->create_item_with_retry( $board_id, $item_name, $column_values, $group_id, $create_labels, $feed, $entry, $form );
 
 		if ( is_wp_error( $item ) ) {
 			$this->add_feed_error(
@@ -720,6 +735,11 @@ class GF_Monday extends GFFeedAddOn {
 
 		gform_update_meta( $entry['id'], 'monday_item_id', $item['id'] );
 		gform_update_meta( $entry['id'], 'monday_item_url', rgar( $item, 'url' ) );
+
+		$this->log_debug( __METHOD__ . '(): Created Monday item #' . $item['id'] . ' (' . rgar( $item, 'url' ) . ').' );
+
+		// Upload any mapped file/photo fields to their Monday file columns.
+		$this->process_file_columns( $item['id'], $feed, $entry, $form, $board_id );
 
 		if ( rgars( $feed, 'meta/monday_add_note' ) ) {
 			$note = sprintf(
@@ -742,6 +762,180 @@ class GF_Monday extends GFFeedAddOn {
 		do_action( 'gform_monday_item_created', $item['id'], $feed, $entry, $form );
 
 		return $entry;
+	}
+
+	/**
+	 * Create an item, retrying once without a column Monday rejects.
+	 *
+	 * A single malformed column value would otherwise cause Monday to reject the
+	 * whole item and lose the lead. When the error names the offending column,
+	 * that column is dropped and the item is retried so the rest of the data
+	 * still lands; the dropped column is logged and noted on the entry.
+	 *
+	 * @param string $board_id      Board ID.
+	 * @param string $item_name     Item name.
+	 * @param array  $column_values Column values map.
+	 * @param string $group_id      Group ID.
+	 * @param bool   $create_labels Create missing labels.
+	 * @param array  $feed          Feed object.
+	 * @param array  $entry         Entry object.
+	 * @param array  $form          Form object.
+	 * @return array|WP_Error
+	 */
+	protected function create_item_with_retry( $board_id, $item_name, $column_values, $group_id, $create_labels, $feed, $entry, $form ) {
+		$item = $this->get_api()->create_item( $board_id, $item_name, $column_values, $group_id, $create_labels );
+
+		if ( ! is_wp_error( $item ) ) {
+			return $item;
+		}
+
+		// Only column-value errors are recoverable by dropping a column.
+		$column_id = $item->get_error_data();
+		$column_id = is_array( $column_id ) ? rgar( $column_id, 'column_id' ) : '';
+
+		if ( empty( $column_id ) || ! isset( $column_values[ $column_id ] ) ) {
+			return $item;
+		}
+
+		$dropped = $column_values[ $column_id ];
+		unset( $column_values[ $column_id ] );
+
+		$this->log_error( __METHOD__ . '(): Retrying without column "' . $column_id . '" that Monday rejected. Dropped value: ' . wp_json_encode( $dropped ) );
+
+		$retry = $this->get_api()->create_item( $board_id, $item_name, $column_values, $group_id, $create_labels );
+
+		if ( ! is_wp_error( $retry ) ) {
+			$this->add_note(
+				$entry['id'],
+				sprintf(
+					/* translators: %s: Monday column ID. */
+					esc_html__( 'Monday rejected the value for column "%s"; the item was created without it. Check that column mapping.', 'gravity-forms-to-monday' ),
+					$column_id
+				),
+				'error'
+			);
+		}
+
+		return $retry;
+	}
+
+	/**
+	 * Upload mapped file-upload field values to Monday file columns.
+	 *
+	 * File columns cannot be populated through create_item column_values, so
+	 * files are attached after the item exists via the assets endpoint.
+	 *
+	 * @param string $item_id  Created item ID.
+	 * @param array  $feed     Feed object.
+	 * @param array  $entry    Entry object.
+	 * @param array  $form     Form object.
+	 * @param string $board_id Board ID.
+	 * @return void
+	 */
+	protected function process_file_columns( $item_id, $feed, $entry, $form, $board_id ) {
+		$board = $this->get_api()->get_board( $board_id );
+		if ( is_wp_error( $board ) ) {
+			return;
+		}
+
+		// Collect file-type column IDs on this board.
+		$file_columns = array();
+		foreach ( (array) rgar( $board, 'columns' ) as $column ) {
+			if ( 'file' === $column['type'] ) {
+				$file_columns[ (string) $column['id'] ] = true;
+			}
+		}
+
+		if ( empty( $file_columns ) ) {
+			return;
+		}
+
+		// Find mappings (dynamic/generic map rows) whose column is a file column.
+		$rows = $this->get_setting( 'monday_dynamic_columns', array(), $feed['meta'] );
+		if ( ! is_array( $rows ) ) {
+			return;
+		}
+
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$key       = rgar( $row, 'key' );
+			$column_id = ( 'gf_custom' === $key ) ? rgar( $row, 'custom_key' ) : $key;
+			$field_id  = rgar( $row, 'value' );
+
+			if ( empty( $file_columns[ (string) $column_id ] ) || rgblank( $field_id ) || 'gf_custom' === $field_id ) {
+				continue;
+			}
+
+			foreach ( $this->get_entry_file_paths( $form, $entry, $field_id ) as $path ) {
+				$result = $this->get_api()->add_file_to_column( $item_id, $column_id, $path );
+
+				if ( is_wp_error( $result ) ) {
+					$this->log_error( __METHOD__ . '(): File upload failed for column "' . $column_id . '": ' . $result->get_error_message() );
+					$this->add_note(
+						$entry['id'],
+						sprintf(
+							/* translators: 1: file name, 2: error. */
+							esc_html__( 'Could not upload "%1$s" to Monday: %2$s', 'gravity-forms-to-monday' ),
+							basename( $path ),
+							$result->get_error_message()
+						),
+						'error'
+					);
+				} else {
+					$this->log_debug( __METHOD__ . '(): Uploaded "' . basename( $path ) . '" to column "' . $column_id . '".' );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Resolve the local file paths for a Gravity Forms file-upload field.
+	 *
+	 * @param array  $form     Form object.
+	 * @param array  $entry    Entry object.
+	 * @param string $field_id Field ID.
+	 * @return string[] Absolute, readable file paths.
+	 */
+	protected function get_entry_file_paths( $form, $entry, $field_id ) {
+		$field = GFFormsModel::get_field( $form, $field_id );
+		if ( ! $field ) {
+			return array();
+		}
+
+		$raw = rgar( $entry, (string) $field_id );
+		if ( rgblank( $raw ) ) {
+			return array();
+		}
+
+		// Multi-file upload fields store a JSON array of URLs; single fields store one URL.
+		$urls = json_decode( $raw, true );
+		if ( ! is_array( $urls ) ) {
+			$urls = array( $raw );
+		}
+
+		$upload_root = GFFormsModel::get_upload_root();
+		$upload_url  = GFFormsModel::get_upload_url_root();
+		$paths       = array();
+
+		foreach ( $urls as $url ) {
+			if ( rgblank( $url ) ) {
+				continue;
+			}
+			// Map the stored upload URL back to its path on disk.
+			$path = str_replace( $upload_url, $upload_root, $url );
+			$path = wp_normalize_path( $path );
+
+			if ( is_readable( $path ) ) {
+				$paths[] = $path;
+			} else {
+				$this->log_error( __METHOD__ . '(): Upload not readable on disk for field ' . $field_id . ': ' . $path );
+			}
+		}
+
+		return $paths;
 	}
 
 	/**

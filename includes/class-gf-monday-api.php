@@ -134,8 +134,20 @@ class GF_Monday_API {
 		if ( ! empty( $data['errors'] ) ) {
 			$messages = wp_list_pluck( $data['errors'], 'message' );
 			$message  = implode( '; ', array_filter( (array) $messages ) );
-			$this->log( 'GraphQL error: ' . $message, 'error' );
-			return new WP_Error( 'gf_monday_graphql_error', $message ? $message : __( 'Monday API returned an error.', 'gravity-forms-to-monday' ) );
+
+			// Monday reports the offending column in the error extensions; surface it.
+			$error_data = $this->extract_error_extensions( $data['errors'] );
+			if ( ! empty( $error_data ) ) {
+				$this->log( 'GraphQL error: ' . $message . ' | extensions: ' . wp_json_encode( $error_data ), 'error' );
+			} else {
+				$this->log( 'GraphQL error: ' . $message, 'error' );
+			}
+
+			return new WP_Error(
+				'gf_monday_graphql_error',
+				$message ? $message : __( 'Monday API returned an error.', 'gravity-forms-to-monday' ),
+				$error_data
+			);
 		}
 
 		if ( $code < 200 || $code >= 300 ) {
@@ -301,6 +313,142 @@ class GF_Monday_API {
 		}
 
 		return $data['create_item'];
+	}
+
+	/**
+	 * Upload a local file to an item's file column.
+	 *
+	 * Uses the multipart file endpoint (not the JSON GraphQL endpoint), per
+	 * https://developer.monday.com/api-reference/reference/assets-1#add-file-to-column
+	 *
+	 * @param string|int $item_id   Item ID.
+	 * @param string     $column_id File column ID.
+	 * @param string     $file_path Absolute path to a readable local file.
+	 * @return array|WP_Error Uploaded asset ( id ) or WP_Error.
+	 */
+	public function add_file_to_column( $item_id, $column_id, $file_path ) {
+		if ( ! $this->has_token() ) {
+			return new WP_Error( 'gf_monday_no_token', __( 'No Monday API token configured.', 'gravity-forms-to-monday' ) );
+		}
+
+		if ( ! is_readable( $file_path ) ) {
+			return new WP_Error(
+				'gf_monday_file_unreadable',
+				sprintf(
+					/* translators: %s: file path. */
+					__( 'File is not readable: %s', 'gravity-forms-to-monday' ),
+					$file_path
+				)
+			);
+		}
+
+		$query = sprintf(
+			'mutation ($file: File!) { add_file_to_column (item_id: %s, column_id: "%s", file: $file) { id } }',
+			(int) $item_id,
+			esc_js( $column_id )
+		);
+
+		$boundary = wp_generate_password( 24, false );
+		$body     = $this->build_multipart_body( $boundary, $query, $file_path );
+
+		$response = wp_remote_post(
+			self::ENDPOINT . '/file',
+			array(
+				'headers' => array(
+					'Authorization' => $this->api_token,
+					'API-Version'   => self::API_VERSION,
+					'Content-Type'  => 'multipart/form-data; boundary=' . $boundary,
+				),
+				'body'    => $body,
+				'timeout' => 60,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			$this->log( 'File upload transport error: ' . $response->get_error_message(), 'error' );
+			return $response;
+		}
+
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( ! empty( $data['errors'] ) ) {
+			$message = implode( '; ', array_filter( (array) wp_list_pluck( $data['errors'], 'message' ) ) );
+			$this->log( 'File upload error: ' . $message, 'error' );
+			return new WP_Error( 'gf_monday_file_error', $message ? $message : __( 'Monday rejected the file upload.', 'gravity-forms-to-monday' ) );
+		}
+
+		return isset( $data['data']['add_file_to_column'] ) ? $data['data']['add_file_to_column'] : array();
+	}
+
+	/**
+	 * Build a multipart/form-data body for a GraphQL file upload.
+	 *
+	 * @param string $boundary  Multipart boundary.
+	 * @param string $query     GraphQL query referencing a `$file` variable.
+	 * @param string $file_path Absolute path to the file.
+	 * @return string
+	 */
+	protected function build_multipart_body( $boundary, $query, $file_path ) {
+		$name     = basename( $file_path );
+		$contents = file_get_contents( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		$eol      = "\r\n";
+
+		// Monday's file endpoint expects a `query` part and a `variables[file]` file part.
+		$body  = '--' . $boundary . $eol;
+		$body .= 'Content-Disposition: form-data; name="query"' . $eol . $eol;
+		$body .= $query . $eol;
+
+		$body .= '--' . $boundary . $eol;
+		$body .= 'Content-Disposition: form-data; name="variables[file]"; filename="' . $name . '"' . $eol;
+		$body .= 'Content-Type: application/octet-stream' . $eol . $eol;
+		$body .= $contents . $eol;
+
+		$body .= '--' . $boundary . '--' . $eol;
+
+		return $body;
+	}
+
+	/**
+	 * Pull structured column-error details out of a Monday errors array.
+	 *
+	 * Monday returns the offending column in `extensions` (and sometimes an
+	 * `error_data` bag), which is what lets us identify and drop a single bad
+	 * column instead of failing the whole item.
+	 *
+	 * @param array $errors GraphQL `errors` array.
+	 * @return array {
+	 *     @type string $code      Error code, if present.
+	 *     @type string $column_id Offending column ID, if present.
+	 *     @type array  $raw       All extensions, for logging.
+	 * }
+	 */
+	protected function extract_error_extensions( $errors ) {
+		$out = array();
+
+		foreach ( (array) $errors as $error ) {
+			$ext = rgar( $error, 'extensions' );
+			if ( empty( $ext ) || ! is_array( $ext ) ) {
+				continue;
+			}
+
+			$out['raw'] = isset( $out['raw'] ) ? array_merge( $out['raw'], array( $ext ) ) : array( $ext );
+
+			if ( isset( $ext['code'] ) && ! isset( $out['code'] ) ) {
+				$out['code'] = $ext['code'];
+			}
+
+			// The column ID can appear under a few keys depending on the error.
+			foreach ( array( 'column_id', 'columnId' ) as $key ) {
+				if ( isset( $ext[ $key ] ) ) {
+					$out['column_id'] = (string) $ext[ $key ];
+				}
+			}
+			if ( ! isset( $out['column_id'] ) && isset( $ext['error_data']['column_id'] ) ) {
+				$out['column_id'] = (string) $ext['error_data']['column_id'];
+			}
+		}
+
+		return $out;
 	}
 
 	/**

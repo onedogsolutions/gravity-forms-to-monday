@@ -1,7 +1,7 @@
 # Project State
 
 **Plugin:** Gravity Forms to Monday
-**Current version:** 1.1.1
+**Current version:** 1.1.2
 **Status:** Feature-complete for v1 scope; in staging testing.
 
 ## What works
@@ -19,21 +19,30 @@
 
 `text`, `long_text`, `numbers`, `email`, `phone`, `date`, `status`, `dropdown`, `checkbox`, `link`, `country`, `rating`, `hour`, `world_clock`, `name`.
 
-Unsupported (v2 candidates): `people`, `file`, `board_relation`, mirror/formula. Handle via the `gform_monday_column_value` filter meanwhile.
+**Files/photos:** `file` columns are populated by uploading GF file-upload field files *after* the item is created (`add_file_to_column`, multipart `/v2/file` endpoint) — they are never placed in `column_values`. Map a file-upload field to a file column in the Custom Values & Additional Columns section.
+
+Still unsupported (v2 candidates): `people`, `board_relation`, mirror/formula. Handle via the `gform_monday_column_value` filter meanwhile.
+
+## Resilience & diagnostics (1.1.2)
+
+- The full `column_values` payload is logged before sending, and Monday's error `extensions` (including the offending `column_id`) are logged on failure — so a rejected column is identifiable without guessing.
+- If Monday rejects one column value, the item is retried once without that column so the lead still lands; the dropped column is logged and noted on the entry.
+- Phone columns send digits-only values with a country code (default `US`, override via `gform_monday_default_country`).
 
 ## Local verification
 
 - All PHP files pass `php -l`.
-- `php tests/test-column-mapper.php` — 21/21 passing (pure value-formatting logic, no WordPress required).
+- `php tests/test-column-mapper.php` — 24/24 passing (pure value-formatting logic, incl. phone; no WordPress required).
 
-The Gravity Forms framework integration (settings rendering, feed UI, `create_item` against a live board) cannot run without a WordPress + Gravity Forms + Monday stack, so it is verified on the staging site.
+The Gravity Forms framework integration (settings rendering, feed UI, `create_item`/file upload against a live board) cannot run without a WordPress + Gravity Forms + Monday stack, so it is verified on the staging site.
 
 ## Verify on staging
 
-1. **Round trip** — connect a token, create a feed covering each supported column type, submit an entry, confirm the item is created with correct values (check the GF add-on log for the sent `column_values`).
-2. **Custom values** — set a discovered column to **Add Custom Value** with static text and with a merge tag (e.g. `{form_title}`); confirm both land on the item.
-3. **Custom column ID** — add an Additional Columns row with a custom Monday Column ID; confirm it populates.
-4. **API shape** — confirm `create_item` arguments and `API-Version` (`2024-10`, `includes/class-gf-monday-api.php`) are accepted by the workspace.
+1. **Round trip** — submit an entry; confirm the item is created and lands in the correct group (the log records the item ID and group).
+2. **Phone** — confirm the phone column populates (the 1.1.2 fix; this was the column that caused the "invalid value" failure).
+3. **Photos** — map a file-upload field to a Monday file column; confirm files attach to the created item.
+4. **Custom values / custom column ID** — set a column to Add Custom Value (static text and a merge tag) and add a custom Monday Column ID; confirm both land.
+5. **Resilience** — if any column still errors, confirm the item is still created without it and the entry gets an explanatory note; read the logged payload + `extensions` to fix that column's format.
 
 ### Known unknown — generic_map row storage shape
 

@@ -32,7 +32,9 @@ Built on the [Gravity Forms Add-On Framework](https://docs.gravityforms.com/gffe
 
 `text`, `long_text`, `numbers`, `email`, `phone`, `date`, `status`, `dropdown`, `checkbox`, `link`, `country`, `rating`, `hour`, `world_clock`, `name`.
 
-Unsupported types (people, files, connected boards, mirror/formula) can be handled via the `gform_monday_column_value` filter.
+**File columns** are populated by uploading a mapped Gravity Forms file-upload field to the Monday file column after the item is created.
+
+Other unsupported types (people, connected boards, mirror/formula) can be handled via the `gform_monday_column_value` filter.
 
 ## Extensibility
 
@@ -40,6 +42,7 @@ Unsupported types (people, files, connected boards, mirror/formula) can be handl
 |---|---|---|
 | `gform_monday_api_token` | filter | Override the stored token (e.g. from a constant). |
 | `gform_monday_item_name` | filter | Override the computed item name. |
+| `gform_monday_default_country` | filter | Two-letter country code used for phone columns (default `US`). |
 | `gform_monday_column_values` | filter | Modify the full `column_values` payload. |
 | `gform_monday_column_value` | filter | Format/override a single column value (handles unsupported types). |
 | `gform_monday_item_created` | action | React to a successfully created item. |

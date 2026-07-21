@@ -18,6 +18,26 @@ defined( 'ABSPATH' ) || die();
 class GF_Monday_Column_Mapper {
 
 	/**
+	 * Default two-letter country code for phone columns.
+	 *
+	 * @var string
+	 */
+	protected static $default_country = 'US';
+
+	/**
+	 * Set the default country code used when formatting phone columns.
+	 *
+	 * @param string $code Two-letter ISO country code.
+	 * @return void
+	 */
+	public static function set_default_country( $code ) {
+		$code = strtoupper( trim( (string) $code ) );
+		if ( preg_match( '/^[A-Z]{2}$/', $code ) ) {
+			self::$default_country = $code;
+		}
+	}
+
+	/**
 	 * Monday column types this connector can write in v1.
 	 *
 	 * @return string[]
@@ -117,10 +137,7 @@ class GF_Monday_Column_Mapper {
 				);
 
 			case 'phone':
-				return array(
-					'phone'            => (string) $value,
-					'countryShortName' => '',
-				);
+				return self::format_phone( $value );
 
 			case 'date':
 				return self::format_date( $value );
@@ -190,6 +207,29 @@ class GF_Monday_Column_Mapper {
 			return null;
 		}
 		return (string) ( $clean + 0 );
+	}
+
+	/**
+	 * Format a phone value into Monday's phone object.
+	 *
+	 * Monday's phone column expects a digits-only value (including the country
+	 * dialing code) and a non-empty two-letter country short name. Sending a
+	 * formatted string with spaces or an empty country short name is rejected as
+	 * an "invalid value".
+	 *
+	 * @param mixed $value Value.
+	 * @return array|null
+	 */
+	protected static function format_phone( $value ) {
+		$digits = preg_replace( '/\D+/', '', (string) $value );
+		if ( '' === $digits ) {
+			return null;
+		}
+
+		return array(
+			'phone'            => $digits,
+			'countryShortName' => self::$default_country,
+		);
 	}
 
 	/**
